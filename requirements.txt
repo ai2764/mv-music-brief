@@ -1,0 +1,10 @@
+librosa
+soundfile
+matplotlib
+demucs
+faster-whisper
+transformers
+essentia-tensorflow
+psutil
+opencc-python-reimplemented
+gradio

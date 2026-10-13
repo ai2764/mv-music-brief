@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mvbrief"
+version = "0.1.0"
+description = "Music analysis -> MV shot-planning brief + ComfyUI/Wan audio-reactive curves"
+requires-python = ">=3.10"
+dependencies = ["librosa", "soundfile", "matplotlib", "demucs", "faster-whisper", "transformers", "psutil", "opencc-python-reimplemented"]
+
+[project.optional-dependencies]
+essentia = ["essentia-tensorflow"]
+ui = ["gradio"]
+
+[project.scripts]
+mvbrief = "mvbrief_cli:main"
+mvbrief-ui = "mvbrief_ui:main"
+
+[tool.setuptools]
+py-modules = ["analyze", "export_comfy", "make_brief", "mvbrief_cli", "mvbrief_ui", "calibrate_clap", "fetch_models"]
