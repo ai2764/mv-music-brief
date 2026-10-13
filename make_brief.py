@@ -48,10 +48,10 @@ def pick_moods(seg, valence):
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("outdir"); ap.add_argument("--fps", type=int, default=16); ap.add_argument("--lang", default="zh"); ap.add_argument("--full", action="store_true", help="embed the full field glossary (for use without the skill)")
     a = ap.parse_args(); fps = a.fps
-    A = json.load(open(os.path.join(a.outdir, "analysis.json"))); g = A["global"]
+    A = json.load(open(os.path.join(a.outdir, "analysis.json"), encoding="utf-8")); g = A["global"]
     sp = os.path.join(a.outdir, "comfy", "shots.json"); SH = None
     if os.path.exists(sp):
-        j = json.load(open(sp)); SH = {s["id"]: s for s in j["shots"]} if j["fps"] == fps else None
+        j = json.load(open(sp, encoding="utf-8")); SH = {s["id"]: s for s in j["shots"]} if j["fps"] == fps else None
     feel = g.get("feel", {}); key = g["key"]; gm = g.get("mood", {})
     L = []; P = L.append
     # ---- (1) instructions
@@ -132,11 +132,11 @@ def main():
     P("> （请在此填写：故事梗概/人物设定、视觉风格与参考、场景与道具、色调、必须出现或避免的元素、是否需要对口型、画幅比例、角色一致性要求等。）\n")
     P("- 故事：\n- 人物：\n- 风格/色调：\n- 场景：\n- 其他要求：\n")
     md = "\n".join(L)
-    open(os.path.join(a.outdir, "agent_brief.md"), "w").write(md)
+    open(os.path.join(a.outdir, "agent_brief.md"), "w", encoding="utf-8").write(md)
     json.dump(dict(fps=fps, overview=dict(duration=dur, notated_bpm=g["bpm"], feel=feel, key=key, language=g.get("lyrics_language"), mood=gm,
                    sections=[dict(start=s["start"], end=s["end"], label=s["label"], energy=s["energy_mean"], trend=s["trend"]) for s in A["sections"]]),
                segments=cards, user_creative={"story": "", "characters": "", "style": "", "scenes": "", "notes": ""}),
-              open(os.path.join(a.outdir, "agent_brief.json"), "w"), ensure_ascii=False, indent=1)
+              open(os.path.join(a.outdir, "agent_brief.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print(f"wrote {a.outdir}/agent_brief.md ({len(md)} chars)")
 
 if __name__ == "__main__": main()

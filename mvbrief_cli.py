@@ -2,12 +2,17 @@
 """mvbrief <audio> [--lyrics txt] [--fps 16] [-o dir]  — analyze -> export_comfy -> make_brief in one go.
 Device: CUDA is used automatically when torch sees a GPU (override: --device cpu|cuda or env MVBRIEF_DEVICE)."""
 import argparse, os, subprocess, sys, time
+from pathlib import Path
+import platform_setup
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = str(Path(__file__).resolve().parent)
 
 def run_pipeline(audio, outdir=None, lyrics=None, fps=16, device=None, whisper_model=None, extra=None, log=print, copy_audio=False):
-    outdir = outdir or os.path.join(os.getcwd(), "out", os.path.splitext(os.path.basename(audio))[0])
-    env = dict(os.environ)
+    outdir = str(Path(outdir) if outdir else Path(audio).resolve().parent / "mvbrief_out" / Path(audio).stem)
+    platform_setup.setup()
+    audio = str(Path(audio).resolve())
+    if not platform_setup.ensure_ffmpeg(): log("[mvbrief] note: ffmpeg not found (mp3/wav/flac/ogg still work via soundfile; install ffmpeg or `pip install imageio-ffmpeg` for m4a/aac)")
+    env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
     if device: env["MVBRIEF_DEVICE"] = device
     py = sys.executable; t0 = time.time()
     cmd = [py, os.path.join(HERE, "analyze.py"), audio, "-o", outdir]

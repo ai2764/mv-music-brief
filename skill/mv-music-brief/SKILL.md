@@ -15,16 +15,31 @@ Turn a song into a per-lyric-line shot list for AI video (ComfyUI + Wan). Music 
 
 ## Step 1 — Run the pipeline
 
-Project: `/workspace/music-analyzer` (Linux/WSL2; GPU used automatically if CUDA works).
-
-```bash
-cd /workspace/music-analyzer && . .venv/bin/activate
-mvbrief song.mp3 -o out/mysong                         # analyze + export + brief
-mvbrief song.mp3 -o out/mysong --lyrics lyrics.txt     # better: real lyrics, one sung line per line
-mvbrief song.mp3 -o out/mysong --fps 24                # Wan default is 16 fps
+**Windows (PowerShell / cmd)** — in the repo folder:
+```powershell
+.\mvbrief.bat song.mp3                                   # output: <song folder>\mvbrief_out\song\
+.\mvbrief.bat song.mp3 --lyrics lyrics.txt -o out\mysong # better: real lyrics, one sung line per line
+.\mvbrief.bat song.mp3 --fps 24 --whisper-model large-v3
 ```
-Equivalent manual steps: `python analyze.py <audio> -o <out> [--lyrics txt]`, then `python export_comfy.py <out> --fps 16`, then `python make_brief.py <out> --fps 16`.
-First-time setup: `./setup.sh` (CPU) or `./install_cuda.sh` (NVIDIA GPU).
+(Or drag the audio onto `mvbrief.bat`. A `<song>.txt` next to it is used as lyrics.)
+
+**Linux / WSL2:**
+```bash
+. .venv/bin/activate
+mvbrief song.mp3 -o out/mysong [--lyrics lyrics.txt] [--fps 16]
+```
+Manual steps (any OS, inside the venv), in order:
+1. `python analyze.py <audio> -o <out> [--lyrics txt]`
+2. `python export_comfy.py <out> --fps 16`
+3. `python make_brief.py <out> --fps 16`
+4. `python make_report.py <out>`
+
+First-time setup:
+- Windows: `powershell -ExecutionPolicy Bypass -File .\install.ps1`
+- Linux GPU: `./install_cuda.sh`
+- Linux CPU: `./setup.sh`
+
+Without essentia (e.g. on Windows), valence and arousal come from CLAP. Mood fields may be marked `va_source: clap`.
 
 Do not force `--language`; it is auto-detected. Run time on CPU is about 2–3 min for a 4-min song.
 

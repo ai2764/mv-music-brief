@@ -5,7 +5,9 @@ Primary unit: lyric lines (vocal songs) / musical phrases (instrumental parts)."
 import argparse, json, os, sys, time, warnings, logging
 warnings.filterwarnings("ignore"); logging.disable(logging.WARNING)
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
-import numpy as np, librosa
+import numpy as np
+import platform_setup; platform_setup.setup()
+import librosa
 
 HERE = os.path.dirname(os.path.abspath(__file__)); MODELS = os.environ.get("MVBRIEF_MODELS", os.path.join(HERE, "models"))
 def _dev():
@@ -31,6 +33,26 @@ def r(x, n=3): return None if x is None else round(float(x), n)
 def t2f(t): return int(np.clip(round(t * SR / HOP), 0, 10**9))
 
 # ---------------- 1. low-level ----------------
+HAVE_ESSENTIA = None
+def essentia_ok():
+    global HAVE_ESSENTIA
+    if HAVE_ESSENTIA is None:
+        if os.environ.get("MVBRIEF_NO_ESSENTIA"): HAVE_ESSENTIA = False
+        else:
+            try: import essentia.standard; HAVE_ESSENTIA = True
+            except Exception: HAVE_ESSENTIA = False
+    return HAVE_ESSENTIA
+
+def beat_this_tempo(path):
+    """optional: beat_this (CPJKU) neural beat tracker -> (bpm, beats, downbeats) or None"""
+    try:
+        from beat_this.inference import File2Beats
+        beats, downs = File2Beats(device=os.environ.get("MVBRIEF_DEVICE", "cuda" if _dev() == "cuda" else "cpu"), dbn=False)(path)
+        if len(beats) < 8: return None
+        return float(60 / np.median(np.diff(beats))), np.asarray(beats), np.asarray(downs)
+    except Exception: return None
+
+AUDIO_PATH = {}
 def lowlevel(y):
     tempo, beats = librosa.beat.beat_track(y=y, sr=SR, hop_length=HOP, units="time")
     tempo = float(np.atleast_1d(tempo)[0])
@@ -45,6 +67,7 @@ def lowlevel(y):
     down = beats[int(np.argmax(sc))::4]
     key = None
     try:
+        if not essentia_ok(): raise ImportError("essentia not installed/disabled")
         import essentia.standard as es
         k, scale, strength = es.KeyExtractor(profileType="edma")(y.astype(np.float32))  # sample-rate agnostic enough for key
         key = {"key": k, "mode": scale, "strength": r(strength), "method": "essentia KeyExtractor(edma)"}
@@ -58,10 +81,14 @@ def lowlevel(y):
         key = {"key": best[1], "mode": best[2], "strength": r(best[0]), "method": "librosa Krumhansl"}
     bpm_ess = None
     try:
+        if not essentia_ok(): raise ImportError("essentia not available")
         import essentia.standard as es
         bpm_ess = float(es.RhythmExtractor2013(method="multifeature")(librosa.resample(y, orig_sr=SR, target_sr=44100).astype(np.float32))[0])
     except Exception: pass
     tempo_raw = tempo
+    if bpm_ess is None and AUDIO_PATH.get("p"):
+        bt = beat_this_tempo(AUDIO_PATH["p"])
+        if bt: bpm_ess = bt[0]; STATUS["beat_this"] = "ok (used as 2nd tempo estimate)"
     tempo, why = reconcile_bpm(tempo, bpm_ess, onset_env)
     if abs(tempo - tempo_raw) / tempo_raw > 0.03:
         _, beats = librosa.beat.beat_track(onset_envelope=onset_env, sr=SR, hop_length=HOP, units="time", start_bpm=tempo, tightness=400)
@@ -78,7 +105,7 @@ def reconcile_bpm(lib, ess, onset_env):
     def acs(b):
         i = int(round(60 * SR / HOP / b)); return float(ac[i]) if 1 < i < len(ac) else -1
     cands = {}
-    for name, b in [("librosa", lib), ("essentia", ess)]:
+    for name, b in [("librosa", lib), ("essentia/beat_this", ess)]:
         if not b: continue
         for f, tag in [(1, ""), (2, " x2"), (0.5, " /2")]:
             if 60 <= b * f <= 190: cands[name + tag] = b * f
@@ -151,7 +178,12 @@ def stems(path, outdir, dur):
     from demucs.pretrained import get_model; from demucs.apply import apply_model; from demucs.audio import AudioFile
     torch.set_num_threads(os.cpu_count())
     m = get_model("htdemucs"); m.eval()
-    wav = AudioFile(path).read(streams=0, samplerate=m.samplerate, channels=m.audio_channels)
+    try:   # decode with librosa/soundfile (no ffprobe needed; works on Windows without ffmpeg for mp3/wav/flac/ogg)
+        yy, _ = librosa.load(path, sr=m.samplerate, mono=False)
+        if yy.ndim == 1: yy = np.stack([yy, yy])
+        wav = torch.from_numpy(yy[:m.audio_channels].astype(np.float32))
+    except Exception:
+        wav = AudioFile(path).read(streams=0, samplerate=m.samplerate, channels=m.audio_channels)
     ref = wav.mean(0); wav_n = (wav - ref.mean()) / (ref.std() + 1e-8)
     with torch.no_grad(): out = apply_model(m, wav_n[None], device=DEV, split=True, overlap=0.25, progress=False)[0]
     out = out * ref.std() + ref.mean()
@@ -280,7 +312,7 @@ def essentia_emotion(path):
     va = es.TensorflowPredict2D(graphFilename=f"{MODELS}/deam-msd-musicnn-2.pb", output="model/Identity")(emb)
     out = {"times": times, "valence": (va[:, 0] - 5) / 4, "arousal": (va[:, 1] - 5) / 4}   # DEAM 1..9 -> -1..1
     for h in ["mood_happy", "mood_sad", "mood_aggressive", "mood_relaxed", "mood_party", "mood_electronic", "mood_acoustic", "danceability"]:
-        meta = json.load(open(f"{MODELS}/{h}-msd-musicnn-1.json")); pos = [c for c in meta["classes"] if not c.startswith("non") and not c.startswith("not")][0]
+        meta = json.load(open(f"{MODELS}/{h}-msd-musicnn-1.json", encoding="utf-8")); pos = [c for c in meta["classes"] if not c.startswith("non") and not c.startswith("not")][0]
         p = es.TensorflowPredict2D(graphFilename=f"{MODELS}/{h}-msd-musicnn-1.pb", output="model/Softmax")(emb)
         out[pos] = p[:, meta["classes"].index(pos)]
     return out
@@ -295,7 +327,7 @@ class Clap:
             enc = lambda v: self._norm(self._feat(self.m.get_text_features(**self.p(text=v, return_tensors="pt", padding=True).to(DEV))))
             self.text = {k: enc(v) for k, v in prompts.items()}
             cp = os.path.join(MODELS, "clap_calib.json")
-            self.calib = {k: np.array(v) for k, v in json.load(open(cp)).items()} if os.path.exists(cp) else None
+            self.calib = {k: np.array(v) for k, v in json.load(open(cp, encoding="utf-8")).items()} if os.path.exists(cp) else None
             self.pos = enc([f"a {a} song" for a, b in MOOD_PAIRS]); self.neg = enc([f"a {b} song" for a, b in MOOD_PAIRS])
     def _feat(self, o): return o if isinstance(o, self.torch.Tensor) else getattr(o, "pooler_output", o[0])
     def _norm(self, x): return x / x.norm(dim=-1, keepdim=True)
@@ -313,7 +345,11 @@ class Clap:
             pa = 1 / (1 + np.exp(-1.7 * (d - self.calib["mean"]) / self.calib["std"]))
         else: pa = 1 / (1 + np.exp(-d * 100))
         moods = [[A, r(p, 2)] if p >= 0.5 else [B, r(1 - p, 2)] for (A, B), p in zip(MOOD_PAIRS, pa)]
-        res = {"mood": sorted(moods, key=lambda x: -x[1])[:top + 3], "mood_pairs": {f"{A}|{B}": r(p, 2) for (A, B), p in zip(MOOD_PAIRS, pa)}}
+        P = dict(zip(MOOD_PAIRS, pa))
+        def pp(A_, B_): return float(P[(A_, B_)])   # P(A over B)
+        val = np.mean([1 - pp("sad", "happy"), pp("euphoric", "gloomy"), pp("hopeful", "hopeless"), 1 - pp("dark", "bright")]) * 2 - 1
+        aro = np.mean([1 - pp("calm", "energetic"), pp("aggressive", "gentle"), pp("tense", "relaxed"), pp("epic", "intimate")]) * 2 - 1
+        res = {"va_clap": [r(val, 2), r(aro, 2)], "mood": sorted(moods, key=lambda x: -x[1])[:top + 3], "mood_pairs": {f"{A}|{B}": r(p, 2) for (A, B), p in zip(MOOD_PAIRS, pa)}}
         for k, t in self.text.items():
             pr = (a @ t.T * 100).softmax(-1)[0].cpu().numpy()
             idx = np.argsort(-pr)[:top]; res[k] = [[self.vocab[k][i], r(pr[i])] for i in idx]
@@ -435,6 +471,8 @@ def describe(seg, ll, sections, act, emo, clap, y, dur, curves):
         if L < 4: w0, w1 = max(0, c - 3), min(dur, c + 3)
         y48 = librosa.resample(y[int(w0 * SR): int(w1 * SR)], orig_sr=SR, target_sr=48000)
         mood["clap"] = clap.tags(y48)
+        if emo is None:   # no essentia: valence/arousal estimated from CLAP contrast pairs
+            mood["valence"], mood["arousal"] = mood["clap"]["va_clap"]; mood["va_source"] = "clap"
     cuts = cut_points(a, b, ll, E, events)
     out = dict(seg)
     out.update(start=r(a, 2), end=r(b, 2), duration=r(L, 2), section=sec["label"], section_index=sections.index(sec),
@@ -508,7 +546,7 @@ def camera_hint(s, tempo):
 def write_md(A, path):
     o = []; g = A["global"]
     o.append(f"# Music analysis: {os.path.basename(A['file'])}\n")
-    o.append(f"- Duration: {g['duration']:.1f}s | Tempo: {g['bpm']:.1f} BPM (librosa {g['bpm_librosa']}, essentia {g['bpm_essentia']}; chose {g['bpm_choice']['chosen']}) | Key: {g['key']['key']} {g['key']['mode']} ({g['key']['method']})")
+    o.append(f"- Duration: {g['duration']:.1f}s | Tempo: {g['bpm']:.1f} BPM (librosa {g['bpm_librosa']}, 2nd estimate {g['bpm_essentia']}; chose {g['bpm_choice']['chosen']}) | Key: {g['key']['key']} {g['key']['mode']} ({g['key']['method']})")
     o.append(f"- Feel: {'HALF-TIME, felt at ' + str(g['feel']['felt_bpm']) + ' BPM' if g['feel']['half_time'] else 'felt at notated tempo'} (camera pace uses energy + onset density + drums, not raw BPM) | Lyrics source: {g['lyrics_source']}")
     o.append(f"- Vocal presence: {g['vocal_ratio']:.0%} of the track | Segmentation mode: **{A['segmentation_mode']}** | Lyrics language: {g.get('lyrics_language')}")
     if g.get("mood"): o.append(f"- Overall mood: valence {g['mood'].get('valence')}, arousal {g['mood'].get('arousal')} (-1..1); " + ", ".join(f"{k} {v}" for k, v in g["mood"].get("essentia_moods", {}).items()))
@@ -533,7 +571,7 @@ def write_md(A, path):
         o.append(f"- Suggested cuts: {s['suggested_cuts']}")
         if s.get("description"): o.append(f"- Description: {s['description']}")
         o.append("")
-    open(path, "w").write("\n".join(o))
+    open(path, "w", encoding="utf-8").write("\n".join(o))
 
 def plot(A, curves, ll, path):
     import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
@@ -567,9 +605,10 @@ def main():
     ap.add_argument("--alm", action="store_true", help="optional audio-language-model descriptions (Qwen2-Audio); needs ~16GB+ free RAM or a GPU")
     args = ap.parse_args(); os.makedirs(args.outdir, exist_ok=True); T0 = time.time(); timing = {}
     STATUS["device"] = DEV
+    if args.no_essentia: os.environ["MVBRIEF_NO_ESSENTIA"] = "1"
     def tick(k, t): timing[k] = round(time.time() - t, 1)
     t = time.time(); y, _ = librosa.load(args.audio, sr=SR, mono=True); dur = len(y) / SR; log(f"loaded {dur:.1f}s")
-    ll = lowlevel(y); tick("lowlevel", t); log("lowlevel done", ll["tempo"])
+    AUDIO_PATH["p"] = args.audio; ll = lowlevel(y); tick("lowlevel", t); log("lowlevel done", ll["tempo"])
     t = time.time(); sections = structure(args.audio, y, ll, dur); tick("structure", t); log("structure", len(sections))
     curves = {"energy": smooth01(ll["rms"]), "bright": smooth01(ll["centroid"])}
     act, stem_rms, vocal_path = None, None, args.audio
@@ -601,11 +640,13 @@ def main():
             lines, st = align_lyrics(lines, open(args.lyrics, encoding="utf-8").read()); linfo["source"] = st; STATUS["lyrics_align"] = st
     elif not args.no_lyrics: STATUS["whisper"] = f"skipped: vocals present only {vocal_ratio:.1%} -> instrumental"
     emo = None
-    if not args.no_essentia:
+    if args.no_essentia: os.environ["MVBRIEF_NO_ESSENTIA"] = "1"
+    if not args.no_essentia and essentia_ok():
         t = time.time()
         try: emo = essentia_emotion(args.audio); STATUS["essentia_tf"] = "ok (msd-musicnn + DEAM valence/arousal + mood heads)"
         except Exception as e: STATUS["essentia_tf"] = f"failed: {e}"
         tick("essentia_tf", t)
+    else: STATUS["essentia_tf"] = "skipped: essentia not installed/disabled (valence/arousal from CLAP pairs)"
     clap = None
     if not args.no_clap:
         t = time.time()
@@ -637,6 +678,12 @@ def main():
     if args.alm:
         STATUS["alm"] = alm_status()
     gm = {}
+    if emo is None and any("valence" in s["mood"] for s in segs):
+        vs = [s["mood"]["valence"] for s in segs if "valence" in s["mood"]]; as_ = [s["mood"]["arousal"] for s in segs if "arousal" in s["mood"]]
+        gm = dict(valence=r(np.mean(vs), 2), arousal=r(np.mean(as_), 2), source="clap")
+        for i, s in enumerate(sections):
+            ss = [x["mood"] for x in segs if x["section_index"] == i and "valence" in x["mood"]]
+            if ss: s["valence"], s["arousal"] = r(np.mean([m["valence"] for m in ss]), 2), r(np.mean([m["arousal"] for m in ss]), 2)
     if emo is not None: gm = dict(valence=r(emo["valence"].mean(), 2), arousal=r(emo["arousal"].mean(), 2), essentia_moods={k: r(emo[k].mean(), 2) for k in emo if k not in ("times", "valence", "arousal")})
     A = dict(file=os.path.abspath(args.audio), segmentation_mode=mode, components=STATUS, timing_s=timing,
              global_=None)
@@ -650,7 +697,7 @@ def main():
                            **({"valence_t": [r(x, 2) for x in emo["times"]], "valence": [r(x, 3) for x in emo["valence"]], "arousal": [r(x, 3) for x in emo["arousal"]]} if emo is not None else {}),
                            **({f"stem_{k}_active": [int(x) for x in v[::step]] for k, v in act.items()} if act else {}))
     timing["total"] = round(time.time() - T0, 1)
-    json.dump(A, open(os.path.join(args.outdir, "analysis.json"), "w"), indent=1, default=lambda o: o.tolist() if hasattr(o, "tolist") else str(o))
+    json.dump(A, open(os.path.join(args.outdir, "analysis.json"), "w", encoding="utf-8"), indent=1, default=lambda o: o.tolist() if hasattr(o, "tolist") else str(o))
     write_md(A, os.path.join(args.outdir, "analysis.md")); plot(A, curves, ll, os.path.join(args.outdir, "analysis.png"))
     log("done in", timing["total"], "s ->", args.outdir); print(json.dumps(dict(components=STATUS, timing_s=timing), indent=1))
 

@@ -10,8 +10,8 @@ def smooth(v, w=5):
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("outdir"); ap.add_argument("--audio"); ap.add_argument("--copy-audio", action="store_true")
     a = ap.parse_args(); od = a.outdir
-    A = json.load(open(os.path.join(od, "analysis.json"))); g = A["global"]
-    B = json.load(open(os.path.join(od, "agent_brief.json"))) if os.path.exists(os.path.join(od, "agent_brief.json")) else None
+    A = json.load(open(os.path.join(od, "analysis.json"), encoding="utf-8")); g = A["global"]
+    B = json.load(open(os.path.join(od, "agent_brief.json"), encoding="utf-8")) if os.path.exists(os.path.join(od, "agent_brief.json")) else None
     # audio: relative path from report to audio file (optional copy next to report)
     src = a.audio or A["file"]; audio = None
     if a.copy_audio and os.path.exists(src):
@@ -21,7 +21,7 @@ def main():
     bands = {}
     cp = os.path.join(od, "comfy", "curves.csv")
     if os.path.exists(cp):
-        rows = list(csv.DictReader(open(cp))); fps = 1 / (float(rows[1]["time"]) - float(rows[0]["time"])); step = max(1, round(fps / 8))
+        rows = list(csv.DictReader(open(cp, encoding="utf-8", newline=""))); fps = 1 / (float(rows[1]["time"]) - float(rows[0]["time"])); step = max(1, round(fps / 8))
         for k in ["kick", "vocal", "bass_stem", "high", "sub_low", "rms"]:
             if k in rows[0]: bands[k] = [round(float(r[k]), 3) for r in rows[::step]]
         bands["_dt"] = step / fps

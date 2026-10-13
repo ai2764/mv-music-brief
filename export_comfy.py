@@ -79,7 +79,7 @@ def prompt_for(s):
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("outdir"); ap.add_argument("--fps", type=int, default=16)
     ap.add_argument("--audio"); ap.add_argument("--max-frames", type=int, default=81); a = ap.parse_args()
-    A = json.load(open(os.path.join(a.outdir, "analysis.json"))); fps = a.fps
+    A = json.load(open(os.path.join(a.outdir, "analysis.json"), encoding="utf-8")); fps = a.fps
     cd = os.path.join(a.outdir, "comfy"); os.makedirs(os.path.join(cd, "schedules"), exist_ok=True); os.makedirs(os.path.join(cd, "segments"), exist_ok=True)
     y, _ = librosa.load(a.audio or A["file"], sr=SR); n = int(math.ceil(len(y) / SR * fps))
     sd = os.path.join(a.outdir, "stems"); st = {k: librosa.load(os.path.join(sd, f"{k}.wav"), sr=SR)[0] for k in ["drums", "vocals", "bass"] if os.path.exists(os.path.join(sd, f"{k}.wav"))}
@@ -102,7 +102,7 @@ def main():
     names = list(C); M = np.vstack([C[k] for k in names]).T
     hdr = "frame,time," + ",".join(names)
     np.savetxt(os.path.join(cd, "curves.csv"), np.column_stack([np.arange(n), np.arange(n) / fps, M]), delimiter=",", header=hdr, comments="", fmt=["%d", "%.4f"] + ["%.4f"] * len(names))
-    for k in names: open(os.path.join(cd, "schedules", f"{k}.txt"), "w").write(sched(C[k]))
+    for k in names: open(os.path.join(cd, "schedules", f"{k}.txt"), "w", encoding="utf-8").write(sched(C[k]))
     shots, md = [], [f"# ComfyUI / Wan shot list — {os.path.basename(A['file'])}\n", f"fps {fps}, Wan clip length 4n+1 ≤ {a.max_frames} frames. Curves: comfy/curves.csv, schedules/*.txt (global frame index), segments/<id>/ (clip-relative).\n"]
     for i, s in enumerate(A["segments"]):
         f0, f1 = int(round(s["start"] * fps)), int(round(s["end"] * fps)); nf = max(1, f1 - f0)
@@ -124,7 +124,7 @@ def main():
         dn = (round(0.35 + 0.35 * ps, 2), round(0.5 + 0.35 * ps, 2))
         sid = f"{i:03d}"; segdir = os.path.join(cd, "segments", sid); os.makedirs(segdir, exist_ok=True)
         sl = M[f0:f1]; np.savetxt(os.path.join(segdir, "curves.csv"), np.column_stack([np.arange(len(sl)), sl]), delimiter=",", header="frame," + ",".join(names), comments="", fmt=["%d"] + ["%.4f"] * len(names))
-        for k in names: open(os.path.join(segdir, f"{k}.txt"), "w").write(sched(C[k][f0:f1]))
+        for k in names: open(os.path.join(segdir, f"{k}.txt"), "w", encoding="utf-8").write(sched(C[k][f0:f1]))
         shot = dict(id=sid, type=s["type"], start=s["start"], end=s["end"], frame_start=f0, frame_end=f1, frames=nf, clips=clips,
                     lyric=s.get("text"), section=s["section"], pace=s["camera_motion_hint"]["pace"], pace_score=ps, energy_trend=s["energy"]["trend"],
                     arrangement=s["arrangement"], wan_prompt=prompt_for(s), motion_strength_range=ms, denoise_range=dn,
@@ -136,8 +136,8 @@ def main():
         md.append(f"- Prompt: *{shot['wan_prompt']}*")
         md.append(f"- Pace {shot['pace']} ({ps}), trend {shot['energy_trend']}, {shot['arrangement']} | motion {ms[0]}-{ms[1]}, denoise {dn[0]}-{dn[1]}")
         md.append(f"- Beat frames: {beats} | downbeats: {downs} | accents: {accs}\n")
-    json.dump(dict(fps=fps, n_frames=n, curves=names, shots=shots), open(os.path.join(cd, "shots.json"), "w"), indent=1, ensure_ascii=False)
-    open(os.path.join(cd, "shots.md"), "w").write("\n".join(md))
+    json.dump(dict(fps=fps, n_frames=n, curves=names, shots=shots), open(os.path.join(cd, "shots.json"), "w", encoding="utf-8"), indent=1, ensure_ascii=False)
+    open(os.path.join(cd, "shots.md"), "w", encoding="utf-8").write("\n".join(md))
     import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
     show = [k for k in ["sub_low", "low_mid", "mid", "high", "rms", "kick", "snare_hat", "vocal", "beat_trig", "accent_trig"] if k in C]
     m = min(n, 30 * fps); t = np.arange(m) / fps
