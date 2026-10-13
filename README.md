@@ -27,6 +27,7 @@ Outputs, all in `out/song/`:
 - `analysis.json`, `analysis.md`, `analysis.png`
 - `comfy/`: `curves.csv`, `schedules/*.txt`, `segments/<id>/`, `shots.json`, `shots.md`
 - `agent_brief.md` and `agent_brief.json`
+- `report.html`: a self-contained interactive report (Chinese UI). Add `--copy-audio` for playback.
 
 Agent skill: `skill/mv-music-brief/SKILL.md`. Copy that folder into your agent's skills directory (e.g. `~/.codex/skills/`).
 

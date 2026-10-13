@@ -32,6 +32,7 @@ Do not force `--language`; it is auto-detected. Run time on CPU is about 2–3 m
 
 | File | Use |
 |---|---|
+| `<out>/report.html` | Human-readable interactive report (open in a browser; `--copy-audio` enables playback). Not needed by the agent. |
 | `<out>/agent_brief.md` | **Main input.** Song overview + one card per segment. Read this first. |
 | `<out>/agent_brief.json` | Same content, machine-readable, with full beat frame lists. |
 | `<out>/comfy/shots.json` | Per segment: frames, Wan clip split, wan_prompt, motion/denoise, beat/downbeat/accent frames. |

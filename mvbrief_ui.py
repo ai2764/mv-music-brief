@@ -11,7 +11,7 @@ def process(audio, lyrics_file, lyrics_text, fps, whisper_model):
         lyr = os.path.join(work, "lyrics.txt"); open(lyr, "w", encoding="utf-8").write(lyrics_text)
     elif lyrics_file: lyr = lyrics_file
     logs = []
-    mvbrief_cli.run_pipeline(audio, out, lyr, int(fps), None, whisper_model or None, log=logs.append)
+    mvbrief_cli.run_pipeline(audio, out, lyr, int(fps), None, whisper_model or None, log=logs.append, copy_audio=True)
     shutil.rmtree(os.path.join(out, "stems"), ignore_errors=True) if os.environ.get("MVBRIEF_UI_NO_STEMS") else None
     z = shutil.make_archive(os.path.join(work, f"{name}_mvbrief"), "zip", out)
     brief = open(os.path.join(out, "agent_brief.md"), encoding="utf-8").read()

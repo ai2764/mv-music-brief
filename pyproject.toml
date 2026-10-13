@@ -18,4 +18,4 @@ mvbrief = "mvbrief_cli:main"
 mvbrief-ui = "mvbrief_ui:main"
 
 [tool.setuptools]
-py-modules = ["analyze", "export_comfy", "make_brief", "mvbrief_cli", "mvbrief_ui", "calibrate_clap", "fetch_models"]
+py-modules = ["analyze", "export_comfy", "make_brief", "make_report", "mvbrief_cli", "mvbrief_ui", "calibrate_clap", "fetch_models"]
